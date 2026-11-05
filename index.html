@@ -8,7 +8,7 @@
 :root[data-theme="dark"]{--bg:#2a2147;--ink:#f1e9ff;--card:rgba(46,36,84,.93)}
 html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink)}
 canvas{position:fixed;inset:0;display:block}
-#vig{position:fixed;inset:0;z-index:5;pointer-events:none;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.6) 100%)}
+#vig{position:fixed;inset:0;z-index:5;pointer-events:none;background:radial-gradient(ellipse at center,transparent 60%,rgba(0,0,0,.3) 100%)}
 #hud{z-index:10;position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:12px;right:12px;display:flex;justify-content:space-between;font-weight:700;text-shadow:0 1px 0 rgba(255,255,255,.6);pointer-events:none}
 #hud span{background:var(--card);padding:6px 12px;border-radius:14px}
 #msg{z-index:10;position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 28px);left:0;right:0;text-align:center;font-weight:700;font-size:18px;pointer-events:none}
@@ -24,15 +24,15 @@ button{margin-top:12px;font:700 18px inherit;font-family:inherit;color:#fff;back
 <div id="vig"></div><div id="hud"><span id="h1"></span><span id="h2"></span></div>
 <div id="msg"><span id="mt"></span></div><div id="banner"></div>
 <div id="ov"><div id="card"><h1 id="ot">Rabbit Maze</h1>
-<p id="od">Nine rounds. One giant rabbit. Follow the floor arrows to the green EXIT door.<br>The rabbit runs as fast as you, so duck into a <b>yellow room</b> off the side of the maze: it waits at the door you used, then wanders off after 20&nbsp;seconds. Every room has two doors.</p><p>Each round starts with a 5-note melody. Remember it: at the exit door you must pick it out from three choices, or the round restarts.</p>
+<p id="od">Nine rounds. One giant rabbit. Follow the floor arrows to the green EXIT door.<br>The rabbit runs a little slower than you, but it never gets tired, so duck into a <b>yellow room</b> off the side of the maze: it waits at the door you used, then wanders off after 20&nbsp;seconds. Every room has two doors.</p><p>Each round starts with a 5-note melody. Remember it: at the exit door you must pick it out from three choices, or the round restarts.</p>
 <p><b>WASD</b> / arrows to move &middot; mouse to look (click to capture) &middot; <b>←/→</b> also turn</p>
 <button id="go">Play</button></div></div>
 <div id="mo" style="display:none"><div id="mc"><h1 id="mh"></h1><p id="mp"></p><div id="mb"></div></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 "use strict";
-const S=5,H=4,SPD=5,PR=.45,DIRS=[[0,-1],[1,0],[0,1],[-1,0]],BIT=[1,2,4,8],TOTAL=9;
-const AMB=.03,LI=5.5,SHADOW_LIGHTS=2; /* tune: AMB = bounce/ambient light, LI = ceiling light strength, SHADOW_LIGHTS = how many nearby lights cast shadows (0 = off) */
+const S=5,H=4,SPD=5,RSPD=4.2,PR=.45,DIRS=[[0,-1],[1,0],[0,1],[-1,0]],BIT=[1,2,4,8],TOTAL=9;
+const AMB=.55,LI=9,SHADOW_LIGHTS=2; /* tune: AMB = bounce/ambient light, LI = ceiling light strength, SHADOW_LIGHTS = how many nearby lights cast shadows (0 = off); RSPD = rabbit speed (player is SPD) */
 const rnd=(a,b)=>a+Math.random()*(b-a),ri=n=>Math.floor(Math.random()*n),pick=a=>a[ri(a.length)],$=i=>document.getElementById(i);
 const THEMES=[
  {wall:[0xcdb8ff,0xb8f0e6,0xf6c6ea],f1:'#e9e0ff',f2:'#cfc2ff',fog:0xd9ccff,ceil:'#f3efff'},
@@ -42,14 +42,14 @@ const PASTEL=[0xff9ecb,0x9ee7ff,0xffe38a,0xb9f5c4,0xc8a8ff,0xffb78a];
 
 const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 /* colour management + filmic tone mapping: correct gamma and soft highlight roll-off */
-renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.95;
+renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
 renderer.shadowMap.enabled=SHADOW_LIGHTS>0;renderer.shadowMap.type=THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);const cv=renderer.domElement;
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(72,1,.1,100);camera.rotation.order='YXZ';
 /* hemisphere light = cheap fake bounce light (warm from the ceiling, tinted from the floor) */
-const amb=new THREE.HemisphereLight(0x9aa0c0,0x3a3050,AMB);scene.add(camera,amb);
-const lamp=new THREE.PointLight(0xffe8d0,.07,5);camera.add(lamp);
-const pool=[];for(let i=0;i<8;i++){const pl=new THREE.PointLight(0xffe0b0,LI,6.5,2.6);
+const amb=new THREE.HemisphereLight(0xdfe4ff,0x8a7aa8,AMB);scene.add(camera,amb);
+const lamp=new THREE.PointLight(0xffe8d0,.25,8);camera.add(lamp);
+const pool=[];for(let i=0;i<8;i++){const pl=new THREE.PointLight(0xffe0b0,LI,10,2);
  if(i<SHADOW_LIGHTS){pl.castShadow=true;pl.shadow.mapSize.set(512,512);pl.shadow.camera.near=.3;pl.shadow.camera.far=7;pl.shadow.bias=-.003}
  scene.add(pl);pool.push(pl)}
 function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix()}
@@ -110,7 +110,7 @@ function build(r){
 
  if(lvl)scene.remove(lvl);texs.forEach(t=>t.dispose());texs=[];lvl=new THREE.Group();scene.add(lvl);
  rects=[];doors=[];obst=[];
- const fc=new THREE.Color(th.fog).multiplyScalar(.03);scene.fog=new THREE.Fog(fc,1.5,24);scene.background=fc;const LC=[0xffe0b0,0xa8d0ff,0xfff0d0];pool.forEach(p=>p.color.setHex(LC[r%3]));
+ const fc=new THREE.Color(th.fog).multiplyScalar(.55);scene.fog=new THREE.Fog(fc,4,40);scene.background=fc;const LC=[0xffe0b0,0xa8d0ff,0xfff0d0];pool.forEach(p=>p.color.setHex(LC[r%3]));
  const W=n*S,
   /* floor: 4x4 vinyl tiles per texture with per-tile tone variation, dark grout lines and grain */
   tf=ctex(256,256,g=>{for(let i=0;i<4;i++)for(let j=0;j<4;j++){g.fillStyle=(i+j)%2?th.f2:th.f1;g.fillRect(i*64,j*64,64,64);const v=Math.random()<.5?0:255;g.fillStyle=`rgba(${v},${v},${v},${rnd(.02,.09)})`;g.fillRect(i*64,j*64,64,64)}
@@ -192,7 +192,7 @@ function mkRabbit(){const g=new THREE.Group(),b=new THREE.Group();g.add(b);
  for(const s of[-1,1]){add(w,[.2,.85,.12],[s*.3,3.05,-.6],-s*.15);add(pk,[.1,.62,.05],[s*.3,3.05,-.7],-s*.15);add(bk,[.1,.1,.1],[s*.27,2.32,-1.25]);add(w,[.3,.5,.4],[s*.5,.3,-.6])}
  g.visible=false;scene.add(g);return{g,b,x:0,z:0,mode:'idle',ang:0,mv:0,ph:Math.random()*6,cell:0}}
 rabbits.push(mkRabbit());
-function go(r,tx,tz,dt){const dx=tx-r.x,dz=tz-r.z,l=Math.hypot(dx,dz);if(l<.05)return;const s=Math.min(l,SPD*dt);r.x+=dx/l*s;r.z+=dz/l*s;r.ang=Math.atan2(-dx,-dz);r.mv=1}
+function go(r,tx,tz,dt){const dx=tx-r.x,dz=tz-r.z,l=Math.hypot(dx,dz);if(l<.05)return;const s=Math.min(l,RSPD*dt);r.x+=dx/l*s;r.z+=dz/l*s;r.ang=Math.atan2(-dx,-dz);r.mv=1}
 function follow(r,f,dt){const c=r.cell;let best=-1,bd=f[c]<0?1e9:f[c];for(const[,nc]of nbrs(c))if(f[nc]>=0&&f[nc]<bd){bd=f[nc];best=nc}if(best>=0)go(r,cxo(best),czo(best),dt)}
 function updRabbit(r,dt){r.mv=0;const c=r.cell=cellOf(r.x,r.z);
  if(r.mode==='chase'){if(c===pcell)go(r,px,pz,dt);else follow(r,F[c]>=0?F:F2,dt)}
@@ -232,9 +232,11 @@ const mkBtn=(t,f,c)=>{const b=document.createElement('button');b.textContent=t;b
 function freeLook(){try{document.exitPointerLock&&document.exitPointerLock()}catch(e){}}
 function showListen(){state='mel';running=false;freeLook();listens=3;const box=$('mb');box.innerHTML='';
  $('mh').textContent=`Round ${round}: remember the melody`;
- $('mp').textContent=(retry?'Wrong melody! The round restarts with a new maze and melody. ':'')+'Listen up to 3 times. You will have to pick it out when you reach the exit door.';retry=false;
- const lb=mkBtn('▶ Listen (3 left)',()=>{if(listens>0&&playMel(melody)){listens--;lb.textContent=`▶ Listen (${listens} left)`;if(!listens)lb.disabled=true}},'alt');
- box.append(lb,mkBtn('Start round',()=>{$('mo').style.display='none';begin()}));$('mo').style.display='flex'}
+ $('mp').textContent=(retry?'Wrong melody! The round restarts with a new maze and melody. ':'')+'Listen up to 3 times. You must listen at least once before you can start. You will have to pick the melody out when you reach the exit door.';retry=false;
+ /* Start stays disabled until the melody has actually played at least once */
+ const sb=mkBtn('Start round',()=>{if(sb.disabled)return;$('mo').style.display='none';begin()});sb.disabled=true;
+ const lb=mkBtn('▶ Listen (3 left)',()=>{if(listens>0&&playMel(melody)){listens--;lb.textContent=`▶ Listen (${listens} left)`;if(!listens)lb.disabled=true;sb.disabled=false}},'alt');
+ box.append(lb,sb);$('mo').style.display='flex'}
 function begin(){state='play';running=true;lockPtr();const b=$('banner');b.textContent=`Round ${round}`;b.style.opacity=1;setTimeout(()=>b.style.opacity=0,1800)}
 function showQuiz(){state='quiz';running=false;freeLook();
  const opts=[{m:melody,ok:true},{m:farMel(melody),ok:false},{m:closeMel(melody),ok:false}].sort(()=>Math.random()-.5),box=$('mb');box.innerHTML='';
