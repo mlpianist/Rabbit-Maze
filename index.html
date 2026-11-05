@@ -8,6 +8,7 @@
 :root[data-theme="dark"]{--bg:#2a2147;--ink:#f1e9ff;--card:rgba(46,36,84,.93)}
 html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink)}
 canvas{position:fixed;inset:0;display:block}
+#vig{position:fixed;inset:0;z-index:5;pointer-events:none;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.6) 100%)}
 #hud{z-index:10;position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:12px;right:12px;display:flex;justify-content:space-between;font-weight:700;text-shadow:0 1px 0 rgba(255,255,255,.6);pointer-events:none}
 #hud span{background:var(--card);padding:6px 12px;border-radius:14px}
 #msg{z-index:10;position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 28px);left:0;right:0;text-align:center;font-weight:700;font-size:18px;pointer-events:none}
@@ -20,9 +21,9 @@ canvas{position:fixed;inset:0;display:block}
 button{margin-top:12px;font:700 18px inherit;font-family:inherit;color:#fff;background:var(--acc);border:0;border-radius:14px;padding:12px 28px;cursor:pointer}
 .mb{margin:8px 6px 0}button.alt{background:#7a5fd0}button:disabled{opacity:.45;cursor:default}#mb div{margin:4px 0}
 </style></head><body>
-<div id="hud"><span id="h1"></span><span id="h2"></span></div>
+<div id="vig"></div><div id="hud"><span id="h1"></span><span id="h2"></span></div>
 <div id="msg"><span id="mt"></span></div><div id="banner"></div>
-<div id="ov"><div id="card"><h1 id="ot">Bunny Playground</h1>
+<div id="ov"><div id="card"><h1 id="ot">Rabbit Maze</h1>
 <p id="od">Nine rounds. One giant rabbit. Follow the floor arrows to the green EXIT door.<br>The rabbit runs as fast as you, so duck into a <b>yellow room</b> off the side of the maze: it waits at the door you used, then wanders off after 20&nbsp;seconds. Every room has two doors.</p><p>Each round starts with a 5-note melody. Remember it: at the exit door you must pick it out from three choices, or the round restarts.</p>
 <p><b>WASD</b> / arrows to move &middot; mouse to look (click to capture) &middot; <b>←/→</b> also turn</p>
 <button id="go">Play</button></div></div>
@@ -31,6 +32,7 @@ button{margin-top:12px;font:700 18px inherit;font-family:inherit;color:#fff;back
 <script>
 "use strict";
 const S=5,H=4,SPD=5,PR=.45,DIRS=[[0,-1],[1,0],[0,1],[-1,0]],BIT=[1,2,4,8],TOTAL=9;
+const AMB=.03,LI=5.5,SHADOW_LIGHTS=2; /* tune: AMB = bounce/ambient light, LI = ceiling light strength, SHADOW_LIGHTS = how many nearby lights cast shadows (0 = off) */
 const rnd=(a,b)=>a+Math.random()*(b-a),ri=n=>Math.floor(Math.random()*n),pick=a=>a[ri(a.length)],$=i=>document.getElementById(i);
 const THEMES=[
  {wall:[0xcdb8ff,0xb8f0e6,0xf6c6ea],f1:'#e9e0ff',f2:'#cfc2ff',fog:0xd9ccff,ceil:'#f3efff'},
@@ -39,19 +41,33 @@ const THEMES=[
 const PASTEL=[0xff9ecb,0x9ee7ff,0xffe38a,0xb9f5c4,0xc8a8ff,0xffb78a];
 
 const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+/* colour management + filmic tone mapping: correct gamma and soft highlight roll-off */
+renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.95;
+renderer.shadowMap.enabled=SHADOW_LIGHTS>0;renderer.shadowMap.type=THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);const cv=renderer.domElement;
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(72,1,.1,100);camera.rotation.order='YXZ';
-const amb=new THREE.AmbientLight(0xd8d0f0,.03);scene.add(camera,amb);
+/* hemisphere light = cheap fake bounce light (warm from the ceiling, tinted from the floor) */
+const amb=new THREE.HemisphereLight(0x9aa0c0,0x3a3050,AMB);scene.add(camera,amb);
 const lamp=new THREE.PointLight(0xffe8d0,.07,5);camera.add(lamp);
-const pool=[];for(let i=0;i<8;i++){const pl=new THREE.PointLight(0xffe0b0,2.0,11,2);scene.add(pl);pool.push(pl)}
+const pool=[];for(let i=0;i<8;i++){const pl=new THREE.PointLight(0xffe0b0,LI,6.5,2.6);
+ if(i<SHADOW_LIGHTS){pl.castShadow=true;pl.shadow.mapSize.set(512,512);pl.shadow.camera.near=.3;pl.shadow.camera.far=7;pl.shadow.bias=-.003}
+ scene.add(pl);pool.push(pl)}
 function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix()}
 addEventListener('resize',resize);resize();
 
-function ctex(w,h,draw,rx,ry){const c=document.createElement('canvas');c.width=w;c.height=h;draw(c.getContext('2d'));const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;if(rx)t.repeat.set(rx,ry);t.anisotropy=4;return t}
-const wallTex=ctex(128,96,g=>{g.fillStyle='#fff';g.fillRect(0,0,128,96);g.strokeStyle='#c9c4d8';g.lineWidth=2;for(let i=0;i<=128;i+=16){g.beginPath();g.moveTo(i,0);g.lineTo(i,96);g.stroke()}for(let j=0;j<=96;j+=16){g.beginPath();g.moveTo(0,j);g.lineTo(128,j);g.stroke()}});
+function ctex(w,h,draw,rx,ry){const c=document.createElement('canvas');c.width=w;c.height=h;draw(c.getContext('2d'));const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.wrapS=t.wrapT=THREE.RepeatWrapping;if(rx)t.repeat.set(rx,ry);t.anisotropy=4;return t}
+/* adds fine grain so surfaces read as material instead of flat colour */
+function speck(g,w,h,a){const im=g.getImageData(0,0,w,h),d=im.data;for(let i=0;i<d.length;i+=4){const v=(Math.random()-.5)*a;d[i]+=v;d[i+1]+=v;d[i+2]+=v}g.putImageData(im,0,0)}
+/* wall: faint wallpaper stripes, grain, baseboard, and baked ambient-occlusion darkening at top, bottom and corners */
+const wallTex=ctex(512,384,g=>{g.fillStyle='#f6f4f8';g.fillRect(0,0,512,384);
+ for(let x=0;x<512;x+=32){g.fillStyle='rgba(60,40,90,.045)';g.fillRect(x,0,16,384)}
+ speck(g,512,384,16);
+ let gr=g.createLinearGradient(0,0,0,384);gr.addColorStop(0,'rgba(0,0,0,.28)');gr.addColorStop(.1,'rgba(0,0,0,0)');gr.addColorStop(.75,'rgba(0,0,0,0)');gr.addColorStop(1,'rgba(0,0,0,.35)');g.fillStyle=gr;g.fillRect(0,0,512,384);
+ g.fillStyle='rgba(60,50,70,.22)';g.fillRect(0,336,512,48);g.fillStyle='rgba(255,255,255,.4)';g.fillRect(0,334,512,3);g.fillStyle='rgba(0,0,0,.3)';g.fillRect(0,337,512,3);
+ gr=g.createLinearGradient(0,0,512,0);gr.addColorStop(0,'rgba(0,0,0,.3)');gr.addColorStop(.05,'rgba(0,0,0,0)');gr.addColorStop(.95,'rgba(0,0,0,0)');gr.addColorStop(1,'rgba(0,0,0,.3)');g.fillStyle=gr;g.fillRect(0,0,512,384)});
 const exitTex=ctex(128,192,g=>{g.fillStyle='#2ee684';g.fillRect(0,0,128,192);g.fillStyle='#b8ffd9';g.fillRect(10,10,108,172);g.fillStyle='#0a6b3b';g.font='bold 40px sans-serif';g.textAlign='center';g.fillText('EXIT',64,106)});
 const sphG=new THREE.SphereGeometry(1,14,10),mc={};
-const mat=c=>mc[c]||(mc[c]=new THREE.MeshPhongMaterial({color:c,specular:0x111111,shininess:12}));
+const mat=c=>mc[c]||(mc[c]=(m=>{m.color.convertSRGBToLinear();return m})(new THREE.MeshStandardMaterial({color:c,roughness:.6,metalness:0})));
 const M={n:0,o:null,rooms:new Set(),s:0,e:0,ed:0};
 let lvl=null,texs=[],rects=[],doors=[],obst=[],rabbits=[],exitPos=null,RMS=[];
 let round=1,catches=0,px=0,pz=0,yaw=0,pitch=0,pcell=0,inRoom=-1,roomT=0,holdN=0,holdF=null,F=null,F2=null;
@@ -94,55 +110,61 @@ function build(r){
 
  if(lvl)scene.remove(lvl);texs.forEach(t=>t.dispose());texs=[];lvl=new THREE.Group();scene.add(lvl);
  rects=[];doors=[];obst=[];
- const fc=new THREE.Color(th.fog).multiplyScalar(.07);scene.fog=new THREE.Fog(fc,2,34);scene.background=fc;const LC=[0xffe0b0,0xa8d0ff,0xfff0d0];pool.forEach(p=>p.color.setHex(LC[r%3]));
- const W=n*S,tf=ctex(128,128,g=>{g.fillStyle=th.f1;g.fillRect(0,0,128,128);g.fillStyle=th.f2;g.fillRect(0,0,64,64);g.fillRect(64,64,64,64)},n,n),
-  tc=ctex(128,128,g=>{g.fillStyle=th.ceil;g.fillRect(0,0,128,128);g.strokeStyle='#b8b0cc';g.lineWidth=3;g.strokeRect(0,0,128,128);g.beginPath();g.moveTo(64,0);g.lineTo(64,128);g.moveTo(0,64);g.lineTo(128,64);g.stroke()},n,n);
+ const fc=new THREE.Color(th.fog).multiplyScalar(.03);scene.fog=new THREE.Fog(fc,1.5,24);scene.background=fc;const LC=[0xffe0b0,0xa8d0ff,0xfff0d0];pool.forEach(p=>p.color.setHex(LC[r%3]));
+ const W=n*S,
+  /* floor: 4x4 vinyl tiles per texture with per-tile tone variation, dark grout lines and grain */
+  tf=ctex(256,256,g=>{for(let i=0;i<4;i++)for(let j=0;j<4;j++){g.fillStyle=(i+j)%2?th.f2:th.f1;g.fillRect(i*64,j*64,64,64);const v=Math.random()<.5?0:255;g.fillStyle=`rgba(${v},${v},${v},${rnd(.02,.09)})`;g.fillRect(i*64,j*64,64,64)}
+   speck(g,256,256,22);g.strokeStyle='rgba(0,0,0,.4)';g.lineWidth=3;for(let i=0;i<=256;i+=64){g.beginPath();g.moveTo(i,0);g.lineTo(i,256);g.moveTo(0,i);g.lineTo(256,i);g.stroke()}},n,n),
+  /* ceiling: acoustic tiles with speckle pits and thin grid */
+  tc=ctex(256,256,g=>{g.fillStyle=th.ceil;g.fillRect(0,0,256,256);speck(g,256,256,18);for(let i=0;i<220;i++){g.fillStyle='rgba(0,0,0,.14)';g.fillRect(rnd(0,256),rnd(0,256),rnd(1,3),rnd(1,2))}
+   g.strokeStyle='rgba(90,85,110,.55)';g.lineWidth=4;g.strokeRect(0,0,256,256);g.beginPath();g.moveTo(128,0);g.lineTo(128,256);g.moveTo(0,128);g.lineTo(256,128);g.stroke()},n,n);
  texs.push(tf,tc);
- const fl=new THREE.Mesh(new THREE.PlaneGeometry(W,W),new THREE.MeshPhongMaterial({map:tf,specular:0x445566,shininess:35}));fl.rotation.x=-Math.PI/2;fl.position.set(W/2,0,W/2);lvl.add(fl);
- const ce=new THREE.Mesh(new THREE.PlaneGeometry(W,W),new THREE.MeshPhongMaterial({map:tc,specular:0x000000}));ce.rotation.x=Math.PI/2;ce.position.set(W/2,H,W/2);lvl.add(ce);
+ const fl=new THREE.Mesh(new THREE.PlaneGeometry(W,W),new THREE.MeshStandardMaterial({map:tf,roughness:.35,metalness:0}));fl.rotation.x=-Math.PI/2;fl.position.set(W/2,0,W/2);fl.receiveShadow=true;lvl.add(fl);
+ const ce=new THREE.Mesh(new THREE.PlaneGeometry(W,W),new THREE.MeshStandardMaterial({map:tc,roughness:1,metalness:0}));ce.rotation.x=Math.PI/2;ce.position.set(W/2,H,W/2);lvl.add(ce);
  const dm=new THREE.Object3D();
- // ceiling light panels
+ // ceiling light panels (over-bright so tone mapping makes them glow)
  lightPos=[];const lights=[];for(let c=0;c<n*n;c++)if(((c%n)+((c/n)|0))%2===0)lights.push(c);
- const li=new THREE.InstancedMesh(new THREE.PlaneGeometry(2,1).rotateX(Math.PI/2),new THREE.MeshBasicMaterial({color:0xffffff}),lights.length);
+ const li=new THREE.InstancedMesh(new THREE.PlaneGeometry(2,1).rotateX(Math.PI/2),new THREE.MeshBasicMaterial({color:new THREE.Color(1.8,1.8,1.7)}),lights.length);
  lights.forEach((c,i)=>{lightPos.push({x:cxo(c),z:czo(c)});dm.position.set(cxo(c),H-.02,czo(c));dm.rotation.set(0,0,0);dm.updateMatrix();li.setMatrixAt(i,dm.matrix)});lvl.add(li);
  // walls
  const wl=[];
  for(let c=0;c<n*n;c++){const x=c%n,y=(c/n)|0;
   if(y===0&&!dk.has(c*4))wl.push([c,0]);if(x===0&&!dk.has(c*4+3))wl.push([c,3]);
   for(const d of[1,2])if(!(M.o[c]&BIT[d])&&!dk.has(c*4+d))wl.push([c,d])}
- const wi=new THREE.InstancedMesh(new THREE.BoxGeometry(S+.3,H,.3),new THREE.MeshPhongMaterial({color:0xffffff,specular:0x111111,shininess:8}),wl.length),col=new THREE.Color();
+ const wi=new THREE.InstancedMesh(new THREE.BoxGeometry(S+.3,H,.3),new THREE.MeshStandardMaterial({color:0xffffff,map:wallTex,roughness:.92,metalness:0}),wl.length),col=new THREE.Color();
+ wi.castShadow=wi.receiveShadow=true;
  wl.forEach(([c,d],i)=>{const x=c%n,y=(c/n)|0,hz=d===0||d===2,wx=d===1?(x+1)*S:d===3?x*S:(x+.5)*S,wz=d===2?(y+1)*S:d===0?y*S:(y+.5)*S;
-  dm.position.set(wx,H/2,wz);dm.rotation.set(0,hz?0:Math.PI/2,0);dm.updateMatrix();wi.setMatrixAt(i,dm.matrix);
+  const th2=(hz?.32:.36)+((x+y)%2)*.02;dm.position.set(wx,H/2,wz);dm.rotation.set(0,hz?0:Math.PI/2,0);dm.scale.set(1,1,th2/.3);dm.updateMatrix();dm.scale.set(1,1,1);wi.setMatrixAt(i,dm.matrix);
   const nc=(y+DIRS[d][1])*n+x+DIRS[d][0],room=M.rooms.has(c)||M.rooms.has(nc);
-  wi.setColorAt(i,col.setHex(room?0xffd86b:th.wall[(x*7+y*13)%3]));
+  wi.setColorAt(i,col.setHex(room?0xffd86b:th.wall[(x*7+y*13)%3]).convertSRGBToLinear());
   rects.push(hz?{x0:wx-S/2-.15,x1:wx+S/2+.15,z0:wz-.15,z1:wz+.15}:{x0:wx-.15,x1:wx+.15,z0:wz-S/2-.15,z1:wz+S/2+.15})});
  wi.instanceColor.needsUpdate=true;lvl.add(wi);
  // arrows
  const sh=new THREE.Shape();sh.moveTo(0,1.1);sh.lineTo(.8,.1);sh.lineTo(.3,.1);sh.lineTo(.3,-1.1);sh.lineTo(-.3,-1.1);sh.lineTo(-.3,.1);sh.lineTo(-.8,.1);sh.closePath();
- const ai=new THREE.InstancedMesh(new THREE.ShapeGeometry(sh).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:0xff4fa8,transparent:true,opacity:.8}),n*n);
+ const ai=new THREE.InstancedMesh(new THREE.ShapeGeometry(sh).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:new THREE.Color(0xff4fa8).convertSRGBToLinear(),transparent:true,opacity:.8}),n*n);
  for(let c=0;c<n*n;c++){let dir=DIRS[M.ed];if(c!==e){for(const[d,nc]of nbrs(c))if(dE[nc]===dE[c]-1){dir=DIRS[d];break}}
   dm.position.set(cxo(c),.03,czo(c));dm.rotation.set(0,Math.atan2(-dir[0],-dir[1]),0);dm.updateMatrix();ai.setMatrixAt(c,dm.matrix)}
  lvl.add(ai);
  // room doors + interiors
  for(const rc of M.rooms){
   for(const[d]of nbrs(rc)){const hz=DIRS[d][1]!==0,x=cxo(rc)+DIRS[d][0]*S/2,z=czo(rc)+DIRS[d][1]*S/2;
-   const m=new THREE.Mesh(new THREE.BoxGeometry(S-.5,H-.4,.22),mat(0xff5fb0));m.rotation.y=hz?0:Math.PI/2;m.position.set(x,(H-.4)/2,z);lvl.add(m);
+   const m=new THREE.Mesh(new THREE.BoxGeometry(S-.5,H-.4,.22),mat(0xff5fb0));m.castShadow=true;m.rotation.y=hz?0:Math.PI/2;m.position.set(x,(H-.4)/2,z);lvl.add(m);
    doors.push({m,x,z,o:0,room:rc,rect:hz?{x0:x-S/2,x1:x+S/2,z0:z-.15,z1:z+.15}:{x0:x-.15,x1:x+.15,z0:z-S/2,z1:z+S/2}})}
-  const pit=new THREE.Mesh(new THREE.PlaneGeometry(S-.4,S-.4).rotateX(-Math.PI/2),mat(0xffa6d0));pit.position.set(cxo(rc),.02,czo(rc));lvl.add(pit);
+  const pit=new THREE.Mesh(new THREE.PlaneGeometry(S-.4,S-.4).rotateX(-Math.PI/2),mat(0xffa6d0));pit.position.set(cxo(rc),.02,czo(rc));pit.receiveShadow=true;lvl.add(pit);
   for(let i=0;i<20;i++){const b=new THREE.Mesh(sphG,mat(pick(PASTEL)));b.scale.setScalar(.33);b.position.set(cxo(rc)+rnd(-2,2),.33+(i>14?.5:0),czo(rc)+rnd(-2,2));lvl.add(b)}}
  // side rooms (outside the maze grid)
  RM.forEach((r,q)=>{const d=r.d,L=4*S;let x0,x1,z0,z1;
   if(d===0){x0=r.k*S;x1=x0+L;z0=-D;z1=0}else if(d===2){x0=r.k*S;x1=x0+L;z0=W;z1=W+D}else if(d===1){x0=W;x1=W+D;z0=r.k*S;z1=z0+L}else{x0=-D;x1=0;z0=r.k*S;z1=z0+L}
   r.x0=x0;r.x1=x1;r.z0=z0;r.z1=z1;
-  const bw=(ax,az,bx,bz)=>{const hz=az===bz,len=Math.hypot(bx-ax,bz-az)+.3,m=new THREE.Mesh(new THREE.BoxGeometry(hz?len:.3,H,hz?.3:len),mat(0xffd86b));m.position.set((ax+bx)/2,H/2,(az+bz)/2);lvl.add(m);
+  const bw=(ax,az,bx,bz)=>{const hz=az===bz,len=Math.hypot(bx-ax,bz-az)+.3,m=new THREE.Mesh(new THREE.BoxGeometry(hz?len:.3,H,hz?.3:len),mat(0xffd86b));m.castShadow=m.receiveShadow=true;m.position.set((ax+bx)/2,H/2,(az+bz)/2);lvl.add(m);
    rects.push(hz?{x0:Math.min(ax,bx)-.15,x1:Math.max(ax,bx)+.15,z0:az-.15,z1:az+.15}:{x0:ax-.15,x1:ax+.15,z0:Math.min(az,bz)-.15,z1:Math.max(az,bz)+.15})};
   if(d===0||d===2){const fz=d===0?z0:z1;bw(x0,fz,x1,fz);bw(x0,z0,x0,z1);bw(x1,z0,x1,z1)}else{const fx=d===1?x1:x0;bw(fx,z0,fx,z1);bw(x0,z0,x1,z0);bw(x0,z1,x1,z1)}
-  const fp=new THREE.Mesh(new THREE.PlaneGeometry(x1-x0,z1-z0).rotateX(-Math.PI/2),mat(0xffa6d0));fp.position.set((x0+x1)/2,.01,(z0+z1)/2);lvl.add(fp);
+  const fp=new THREE.Mesh(new THREE.PlaneGeometry(x1-x0,z1-z0).rotateX(-Math.PI/2),mat(0xffa6d0));fp.position.set((x0+x1)/2,.01,(z0+z1)/2);fp.receiveShadow=true;lvl.add(fp);
   const rc=new THREE.Mesh(new THREE.PlaneGeometry(x1-x0,z1-z0).rotateX(Math.PI/2),mat(0xfff4d8));rc.position.set((x0+x1)/2,H-.01,(z0+z1)/2);lvl.add(rc);
-  for(const f of[.25,.75]){const hzr=d===0||d===2,lx=hzr?x0+(x1-x0)*f:(x0+x1)/2,lz=hzr?(z0+z1)/2:z0+(z1-z0)*f,pn=new THREE.Mesh(new THREE.PlaneGeometry(2,1).rotateX(Math.PI/2),new THREE.MeshBasicMaterial({color:0xffffff}));pn.position.set(lx,H-.03,lz);lvl.add(pn);lightPos.push({x:lx,z:lz})}
+  for(const f of[.25,.75]){const hzr=d===0||d===2,lx=hzr?x0+(x1-x0)*f:(x0+x1)/2,lz=hzr?(z0+z1)/2:z0+(z1-z0)*f,pn=new THREE.Mesh(new THREE.PlaneGeometry(2,1).rotateX(Math.PI/2),new THREE.MeshBasicMaterial({color:new THREE.Color(1.8,1.8,1.7)}));pn.position.set(lx,H-.03,lz);lvl.add(pn);lightPos.push({x:lx,z:lz})}
   for(let i=0;i<26;i++){const b=new THREE.Mesh(sphG,mat(pick(PASTEL)));b.scale.setScalar(.35);b.position.set(rnd(x0+1,x1-1),.35+(i>18?.6:0),rnd(z0+1,z1-1));lvl.add(b)}
   for(const i of[0,3]){const c=sc0(d,r.k,i),dr=DIRS[d],hz=dr[1]!==0,x=cxo(c)+dr[0]*S/2,z=czo(c)+dr[1]*S/2;
-   const m=new THREE.Mesh(new THREE.BoxGeometry(S-.5,H-.4,.22),mat(0xff5fb0));m.rotation.y=hz?0:Math.PI/2;m.position.set(x,(H-.4)/2,z);lvl.add(m);
+   const m=new THREE.Mesh(new THREE.BoxGeometry(S-.5,H-.4,.22),mat(0xff5fb0));m.castShadow=true;m.rotation.y=hz?0:Math.PI/2;m.position.set(x,(H-.4)/2,z);lvl.add(m);
    doors.push({m,x,z,o:0,room:q,cell:c,dir:d,rect:hz?{x0:x-S/2,x1:x+S/2,z0:z-.15,z1:z+.15}:{x0:x-.15,x1:x+.15,z0:z-S/2,z1:z+S/2}})}});
  // exit door
  const eh=DIRS[M.ed][1]!==0,xm=new THREE.Mesh(new THREE.BoxGeometry(2.4,3.2,.15),new THREE.MeshBasicMaterial({map:exitTex}));
@@ -165,7 +187,7 @@ function build(r){
 /* ---------- rabbits ---------- */
 function mkRabbit(){const g=new THREE.Group(),b=new THREE.Group();g.add(b);
  const w=mat(0xfff3fa),pk=mat(0xff9ecb),bk=new THREE.MeshBasicMaterial({color:0x221133});
- const add=(m,sc,p,rz)=>{const o=new THREE.Mesh(sphG,m);o.scale.set(...sc);o.position.set(...p);if(rz)o.rotation.z=rz;b.add(o)};
+ const add=(m,sc,p,rz)=>{const o=new THREE.Mesh(sphG,m);o.scale.set(...sc);o.position.set(...p);o.castShadow=true;if(rz)o.rotation.z=rz;b.add(o)};
  add(w,[1,1.15,1.3],[0,1.15,0]);add(w,[.65,.65,.65],[0,2.2,-.7]);add(w,[.35,.35,.35],[0,.95,1.25]);add(pk,[.1,.1,.1],[0,2.12,-1.32]);
  for(const s of[-1,1]){add(w,[.2,.85,.12],[s*.3,3.05,-.6],-s*.15);add(pk,[.1,.62,.05],[s*.3,3.05,-.7],-s*.15);add(bk,[.1,.1,.1],[s*.27,2.32,-1.25]);add(w,[.3,.5,.4],[s*.5,.3,-.6])}
  g.visible=false;scene.add(g);return{g,b,x:0,z:0,mode:'idle',ang:0,mv:0,ph:Math.random()*6,cell:0}}
@@ -259,7 +281,7 @@ function push(w){const cx=Math.max(w.x0,Math.min(px,w.x1)),cz=Math.max(w.z0,Math
  if(d<PR){if(d<1e-4)pz+=PR;else{px+=dx/d*(PR-d);pz+=dz/d*(PR-d)}}}
 function update(dt){
  if(caughtT>0){caughtT-=dt;if(caughtT<=0){resetRound()}return}
- rt+=dt;tAcc+=dt;if(Math.random()<.004)flick=.14;flick=Math.max(0,flick-dt);const fk=1+Math.sin(tAcc*.9)*.04-(flick>0?.55*Math.pow(Math.sin(flick*70),2):0);amb.intensity=.03*fk;for(const pl of pool)pl.intensity=2.0*fk;
+ rt+=dt;tAcc+=dt;if(Math.random()<.007)flick=.14;flick=Math.max(0,flick-dt);const fk=1+Math.sin(tAcc*.9)*.04-(flick>0?.55*Math.pow(Math.sin(flick*70),2):0);amb.intensity=AMB*fk;for(const pl of pool)pl.intensity=LI*fk;
  lt-=dt;if(lt<=0){lt=.12;lightPos.sort((a,b)=>(a.x-px)**2+(a.z-pz)**2-((b.x-px)**2+(b.z-pz)**2));pool.forEach((pl,i)=>{const p=lightPos[i];if(p)pl.position.set(p.x,H-.4,p.z)})}
  yaw+=(k('ArrowLeft')-k('ArrowRight'))*2*dt;
  const f=k('KeyW')+k('ArrowUp')-k('KeyS')-k('ArrowDown'),s=k('KeyD')-k('KeyA');
